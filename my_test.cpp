@@ -121,13 +121,65 @@ double DWT(SCFloatArray  x,SCFloatArray y,int len_x = 30,int len_y = 30,int inde
 
 	return (res);
 }
+double DWT_Global_restrict(SCFloatArray  x,SCFloatArray y,int len_x = 30,int len_y = 30,int index = 0){
+	int len_x_new = len_x+1;
+	int len_y_new = len_y+1;
+	int i,j;
+	int global_restrict = (int)(len_x*0.5);
+
+	float* temp_x;
+	float* temp_y;
+	temp_x = (float*)malloc( len_x*sizeof(float) );
+	temp_y = (float*)malloc( len_y*sizeof(float) );
+	Z_Score(x,len_x,index,temp_x);
+	Z_Score(y,len_y,index,temp_y);
+
+
+
+	float** temp;
+	temp = (float**)malloc(sizeof(float*)*(len_x+1));
+	for(i=0;i<=len_x;i++){
+		temp[i] = (float*)malloc((len_y+1)*sizeof(float));
+	}  
+
+	
+
+	for( i = 0;i<len_x_new;i++){
+		for(j = 0;j<len_y_new;j++){
+			temp[i][j] = INF;
+		}
+	}
+	temp[0][0] = 0;
+
+	for( i=0;i<len_x;i++){
+		for( j=0;j<len_y;j++){
+			if(abs(i-j)<=global_restrict){
+				float d = (temp_x[i]-temp_y[j]);
+				float cost = d*d;
+				temp[i+1][j+1] = min_cost(temp[i+1][j]+cost,temp[i][j+1]+cost,temp[i][j]+cost);
+			}		
+		}
+	}
+
+	double res = temp[len_x][len_y];
+	free((void *)temp_x);
+	free((void *)temp_y);
+	for(i=0;i<=len_x;i++){
+		 free((void *)temp[i]);
+	}
+	free((void *)temp);
+
+
+	return (res);
+}
 //************************************************************
 //parallel_dtw
 
-float dtw_parallel(SCFloatArray s1, SCFloatArray s2, int len, int BarIndex, SCStudyInterfaceRef sc){
+float dtw_parallel(SCFloatArray s1, SCFloatArray s2, int len, int BarIndex,SCStudyInterfaceRef sc){
 
 	int len_x_new = len+1;
 	int len_y_new = len+1;
+	int global_restrict = (int)(len*0.5);
 
 	float** cost_matrix;
 	cost_matrix = (float**)malloc(sizeof(float*)*(len+1));
@@ -159,7 +211,6 @@ float dtw_parallel(SCFloatArray s1, SCFloatArray s2, int len, int BarIndex, SCSt
 	cost_matrix[0][0] = 0;
 	int loop_num = 2*len-1;
 
-	
 	for(int index=0;index<loop_num;index++){
 		int calculation_num = 0;
 		if(index<=len-1){
@@ -185,15 +236,23 @@ float dtw_parallel(SCFloatArray s1, SCFloatArray s2, int len, int BarIndex, SCSt
 			if(calculation_num<=thread_count){
 				if(my_rank<=calculation_num-1){
 					if(index<=len-1){
-						float d = temp_x[my_rank] - temp_y[index-my_rank];
-						float cost = d*d;
-						cost_matrix[my_rank+1][index-my_rank+1] = cost+min_cost(cost_matrix[my_rank][index-my_rank+1],cost_matrix[my_rank+1][index-my_rank],cost_matrix[my_rank][index-my_rank]);					
+						if(abs(my_rank-(index-my_rank))<=global_restrict){
+							float d = temp_x[my_rank] - temp_y[index-my_rank];
+							float cost = d*d;
+							cost_matrix[my_rank+1][index-my_rank+1] = cost+min_cost(cost_matrix[my_rank][index-my_rank+1],cost_matrix[my_rank+1][index-my_rank],cost_matrix[my_rank][index-my_rank]);
+						}
+											
 					}
 					else{
+
 						int temp_num = index-len+1;
-						float d = temp_x[temp_num+my_rank] - temp_y[len-my_rank-1];
-						float cost = d*d;
-						cost_matrix[temp_num+my_rank+1][len-my_rank] = cost+min_cost(cost_matrix[temp_num+my_rank][len-my_rank],cost_matrix[temp_num+my_rank+1][len-my_rank-1],cost_matrix[temp_num+my_rank][len-my_rank-1]);
+						if(abs(temp_num+my_rank-(len-my_rank-1))<=global_restrict){
+							float d = temp_x[temp_num+my_rank] - temp_y[len-my_rank-1];
+							float cost = d*d;
+							cost_matrix[temp_num+my_rank+1][len-my_rank] = cost+min_cost(cost_matrix[temp_num+my_rank][len-my_rank],cost_matrix[temp_num+my_rank+1][len-my_rank-1],cost_matrix[temp_num+my_rank][len-my_rank-1]);
+					
+						}
+						
 					}
 				}
 				else{
@@ -211,17 +270,25 @@ float dtw_parallel(SCFloatArray s1, SCFloatArray s2, int len, int BarIndex, SCSt
 					end_num = start_num+average_count-1;
 					if(index<=len-1){
 						for(int s = start_num;s<=end_num;s++){
-							d = temp_x[s-1] - temp_y[index+1-s];
-							cost = d*d;
-							cost_matrix[s][index-s+2] = cost+min_cost(cost_matrix[s-1][index-s+2],cost_matrix[s][index-s+1],cost_matrix[s-1][index-s+1]);
+							if(abs(s-1-(index+1-s))<=global_restrict){
+								d = temp_x[s-1] - temp_y[index+1-s];
+								cost = d*d;
+								cost_matrix[s][index-s+2] = cost+min_cost(cost_matrix[s-1][index-s+2],cost_matrix[s][index-s+1],cost_matrix[s-1][index-s+1]);
+						
+							}
+							
 						}
 					}
 					else{
 						for(int s = start_num;s<=end_num;s++){
 							temp_num = index-len;
-							d = temp_x[temp_num+s]-temp_y[len-s];
-							cost = d*d;
-							cost_matrix[temp_num+s+1][len-s+1] = cost+min_cost(cost_matrix[temp_num+s][len-s+1],cost_matrix[temp_num+s+1][len-s],cost_matrix[temp_num+s][len-s]);
+							if(abs(temp_num+s-(len-s))<=global_restrict){
+								d = temp_x[temp_num+s]-temp_y[len-s];
+								cost = d*d;
+								cost_matrix[temp_num+s+1][len-s+1] = cost+min_cost(cost_matrix[temp_num+s][len-s+1],cost_matrix[temp_num+s+1][len-s],cost_matrix[temp_num+s][len-s]);
+						
+							}
+							
 						}
 
 					}
@@ -233,17 +300,25 @@ float dtw_parallel(SCFloatArray s1, SCFloatArray s2, int len, int BarIndex, SCSt
 
 					if(index<=len-1){
 						for(int s = start_num;s<=end_num;s++){
-							d = temp_x[s-1] - temp_y[index+1-s];
-							cost = d*d;
-							cost_matrix[s][index-s+2] = cost+min_cost(cost_matrix[s-1][index-s+2],cost_matrix[s][index-s+1],cost_matrix[s-1][index-s+1]);
+							if(abs(s-1-(index+1-s))<=global_restrict){
+								d = temp_x[s-1] - temp_y[index+1-s];
+								cost = d*d;
+								cost_matrix[s][index-s+2] = cost+min_cost(cost_matrix[s-1][index-s+2],cost_matrix[s][index-s+1],cost_matrix[s-1][index-s+1]);
+						
+							}
+							
 						}
 					}
 					else{
 						for(int s = start_num;s<=end_num;s++){
 							temp_num = index-len;
-							d = temp_x[temp_num+s]-temp_y[len-s];
-							cost = d*d;
-							cost_matrix[temp_num+s+1][len-s+1] = cost+min_cost(cost_matrix[temp_num+s][len-s+1],cost_matrix[temp_num+s+1][len-s],cost_matrix[temp_num+s][len-s]);
+							if(abs(temp_num+s-(len-s))<=global_restrict){
+								d = temp_x[temp_num+s]-temp_y[len-s];
+								cost = d*d;
+								cost_matrix[temp_num+s+1][len-s+1] = cost+min_cost(cost_matrix[temp_num+s][len-s+1],cost_matrix[temp_num+s+1][len-s],cost_matrix[temp_num+s][len-s]);
+						
+							}
+							
 						}
 					}
 
@@ -349,6 +424,7 @@ int get_pattern_dtw_symbol(SCFloatArray sequence, int len,int index){
 float pattern_dtw(SCFloatArray xx,SCFloatArray yy,int len_x, int len_y, const int k,int index,SCStudyInterfaceRef sc){
 	int len_x_new = (int)(len_x/k);
 	int len_y_new = (int)(len_y/k);
+	int global_restrict = (int)(len_x*0.5);
 	int* temp_x;
 	int* temp_y;
 	float** temp;
@@ -396,12 +472,15 @@ float pattern_dtw(SCFloatArray xx,SCFloatArray yy,int len_x, int len_y, const in
 	temp[0][0]=0;
 	for(int i=0;i<len_x_new;i++){
 		for(int j=0;j<len_y_new;j++){
-			float cost = 0;
-			if(temp_x[i]!=temp_y[i]){
-				cost = 1;
-			}
+			if(abs(i-j)<=global_restrict){
+				float cost = 0;
+				if(temp_x[i]!=temp_y[i]){
+					cost = 1;
+				}
 
-			temp[i+1][j+1] = cost+min_cost(temp[i][j],temp[i+1][j],temp[i][j+1]);
+				temp[i+1][j+1] = cost+min_cost(temp[i][j],temp[i+1][j],temp[i][j+1]);
+			}
+			
 		}
 	}
 
@@ -420,45 +499,44 @@ float pattern_dtw(SCFloatArray xx,SCFloatArray yy,int len_x, int len_y, const in
 
 //********************************************************************
 //search query secquence
-double LB_Yi(SCFloatArray query, SCFloatArray candidate, int window_size){
-	double max_value = SUP;
-	double min_value = INF;
+float LB_Yi(float* query, float* candidate, int window_size){
+	float max_value = SUP;
+	float min_value = INF;
+	float max_value2 = SUP;
+	float min_value2 = INF;
 	for(int i=0;i<window_size;i++){
 		if(max_value<query[i]){
 			max_value = query[i];
 		}
-		else if(min_value>query[i]){
+		if(min_value>query[i]){
 			min_value = query[i];
 		}
+		//2
+		if(max_value2<candidate[i]){
+			max_value2 = candidate[i];
+		}
+		if(min_value2>candidate[i]){
+			min_value2 = candidate[i];
+		}
 	}
-	double distance=0;
+	float distance=0;
+	float distance2 = 0;
 	for(int i=0;i<window_size;i++){
 		if(candidate[i]>max_value){
 			distance+=pow((candidate[i]-max_value),2);
 		}
-		else if(candidate[i]<min_value){
+		if(candidate[i]<min_value){
 			distance+=pow((candidate[i]-min_value),2);
 		}
-	}
-	max_value = SUP;
-	min_value = INF;
-	double distance2 = 0;
-	for(int i=0;i<window_size;i++){
-		if(max_value<candidate[i]){
-			max_value = candidate[i];
+		//2
+		if(query[i]>max_value2){
+			distance2+=pow((query[i]-max_value2),2);
 		}
-		else if(min_value>candidate[i]){
-			min_value = candidate[i];
+		if(query[i]<min_value2){
+			distance2+=pow((query[i]-min_value2),2);
 		}
 	}
-	for(int i=0;i<window_size;i++){
-		if(query[i]>max_value){
-			distance2+=pow((query[i]-max_value),2);
-		}
-		else if(query[i]<min_value){
-			distance2+=pow((query[i]-min_value),2);
-		}
-	}
+	
 	if(distance>distance2){
 		return distance;
 	}
@@ -467,14 +545,113 @@ double LB_Yi(SCFloatArray query, SCFloatArray candidate, int window_size){
 	}
 
 }
+float LB_Keogh(float* query, float* candidate, int window_size){
+	int global_restrict = (int)(window_size*0.5);
+	float dis1=0;
+	float dis2=0;
+	float* U;
+	float* L;
+	U = (float*)malloc( window_size*sizeof(float) );
+	L = (float*)malloc( window_size*sizeof(float) );
+
+	float* U2;
+	float* L2;
+	U2 = (float*)malloc( window_size*sizeof(float) );
+	L2 = (float*)malloc( window_size*sizeof(float) );
+	//step1, get U and L
+	for(int i=0;i<window_size;i++){
+		float temp_max = SUP;
+		float temp_min = INF;
+		float temp_max2 = SUP;
+		float temp_min2 = INF;
+		for(int j=0;j<global_restrict;j++){
+			if((i-j)>=0){
+				//U
+				if(query[i-j]>temp_max){
+					temp_max =query[i-j]; 
+				}
+				//L
+				if(query[i-j]<temp_min){
+					temp_min = query[i-j];
+				}
+
+				//U2
+				if(candidate[i-j]>temp_max2){
+					temp_max2 =candidate[i-j]; 
+				}
+				//L2
+				if(candidate[i-j]<temp_min2){
+					temp_min2 = candidate[i-j];
+				}
+
+			}
+			if((i+j)<window_size){
+
+				//U
+				if(query[i+j]>temp_max){
+					temp_max = query[i+j];
+				}
+				//L
+				if(query[i+j]<temp_min){
+					temp_min = query[i+j];
+				}
+				//U2
+				if(candidate[i+j]>temp_max2){
+					temp_max2 =candidate[i+j]; 
+				}
+				//L2
+				if(candidate[i+j]<temp_min2){
+					temp_min2 = candidate[i+j];
+				}
+			}
+		}
+		U[i]=temp_max;
+		L[i]=temp_min;
+		U2[i]=temp_max2;
+		L2[i]=temp_min2;
+	}
+
+	//step2 get LB distance
+	for(int i=0;i<window_size;i++){
+		if(candidate[i]>U[i]){
+			dis1+=pow((candidate[i]-U[i]),2);
+		}
+		else if(candidate[i]<L[i]){
+			dis1+=pow((candidate[i]-L[i]),2);
+		}
+		if(query[i]>U2[i]){
+			dis2+=pow((query[i]-U2[i]),2);
+		}
+		else if(query[i]<L2[i]){
+			dis2+=pow((query[i]-L2[i]),2);
+		}
+	}
+
+	free((void *)U);
+	free((void *)L);
+	free((void *)U2);
+	free((void *)L2);
+
+	if(dis1>dis2){
+		return dis1;
+	}
+	else{
+		return dis2;
+	}
+}
 
 int search_similarity(SCFloatArray query, SCFloatArray candidate, int window_size,int candidate_len,int thread_num,SCStudyInterfaceRef sc){
 	float best_match = INF;
 	int best_match_index = -1;
-	
+	int global_restrict = (int)(window_size*0.5);
+
+	float* temp_x;
+	temp_x = (float*)malloc( window_size*sizeof(float) );
+	Z_Score(query,window_size,window_size-1,temp_x);
+
 	sc.DataStartIndex = window_size-1;
 
-	#pragma omp parallel for num_threads(thread_num)
+	#pragma omp parallel for num_threads(thread_num) schedule(dynamic)
 	for(int BarIndex=sc.UpdateStartIndex;BarIndex<candidate_len;BarIndex++){
 		
 
@@ -484,55 +661,68 @@ int search_similarity(SCFloatArray query, SCFloatArray candidate, int window_siz
 		float res = INF;
 		bool flag = true;
 
-		float* temp_x;
+		
 		float* temp_y;
-		temp_x = (float*)malloc( window_size*sizeof(float) );
 		temp_y = (float*)malloc( window_size*sizeof(float) );
-		Z_Score(query,window_size,window_size-1,temp_x);
 		Z_Score(candidate,window_size,BarIndex,temp_y);
 
 
 		float LB1 = pow((temp_x[window_size-1]-temp_y[window_size-1]),2); 
 		float LB2 = pow((temp_x[0]-temp_y[0]),2);
-		float LB = LB1+LB2;
-		if(LB<best_match){
+		float LB_Kim = LB1+LB2;
+		if(LB_Kim<best_match){
+			float LB_Yi_dis = LB_Yi(temp_x,temp_y,window_size);
+			if(LB_Yi_dis<best_match){
+				float LB_Keogh_dis = LB_Keogh(temp_x,temp_y,window_size);
+				if(LB_Keogh_dis<best_match){
+					float** temp;
+					float temp_min ;
+					temp = (float**)malloc(sizeof(float*)*(window_size+1));
+					for(i=0;i<=window_size;i++){
+						temp[i] = (float*)malloc((window_size+1)*sizeof(float));
+					} 
 
-			float** temp;
-			float temp_min ;
-			temp = (float**)malloc(sizeof(float*)*(window_size+1));
-			for(i=0;i<=window_size;i++){
-				temp[i] = (float*)malloc((window_size+1)*sizeof(float));
-			} 
-
-			for( i = 0;i<len_x_new;i++){
-				for(j = 0;j<len_y_new;j++){
-					temp[i][j] = INF;
-				}
-			}
-			temp[0][0] = 0;
-
-			for( i=0;i<window_size;i++){
-				temp_min = INF;
-				for( j=0;j<window_size;j++){
-					float d = (temp_x[i]-temp_y[j]);
-					float cost = d*d;
-					temp[i+1][j+1] = min_cost(temp[i+1][j]+cost,temp[i][j+1]+cost,temp[i][j]+cost);
-					
-					if(temp[i+1][j+1]<temp_min){
-						temp_min = temp[i+1][j+1];
+					for( i = 0;i<len_x_new;i++){
+						for(j = 0;j<len_y_new;j++){
+							temp[i][j] = INF;
+						}
 					}
-					
+					temp[0][0] = 0;
+
+					for( i=0;i<window_size;i++){
+						temp_min = INF;
+						for( j=0;j<window_size;j++){
+							if(abs(i-j)<=global_restrict){
+								float d = (temp_x[i]-temp_y[j]);
+								float cost = d*d;
+								temp[i+1][j+1] = min_cost(temp[i+1][j]+cost,temp[i][j+1]+cost,temp[i][j]+cost);
+							
+							}
+							
+							if(temp[i+1][j+1]<temp_min){
+								temp_min = temp[i+1][j+1];
+							}
+							
+						}
+						if(temp_min>best_match){
+							flag = false;
+							break;
+						}
+					}
+					res = temp[window_size][window_size];
+					for(i=0;i<=window_size;i++){
+						free((void *)temp[i]);
+					}
+					free((void *)temp);
 				}
-				if(temp_min>best_match){
+				else{
 					flag = false;
-					break;
 				}
 			}
-			res = temp[window_size][window_size];
-			for(i=0;i<=window_size;i++){
-				free((void *)temp[i]);
+			else{
+				flag=false;
 			}
-			free((void *)temp);
+			
 		}
 		else{
 			flag = false;
@@ -547,18 +737,21 @@ int search_similarity(SCFloatArray query, SCFloatArray candidate, int window_siz
 
 			}
 		}
-		free((void *)temp_x);
+		
 		free((void *)temp_y);
 		
 	}
+
+	free((void *)temp_x);
 	return best_match_index;
 
 }
 
 
-int search_similarity_single_noLB(SCFloatArray query, SCFloatArray candidate, int window_size,int candidate_len,SCStudyInterfaceRef sc){
+int search_similarity_single_noLB_noRestrict(SCFloatArray query, SCFloatArray candidate, int window_size,int candidate_len,SCStudyInterfaceRef sc){
 	float best_match = INF;
 	int best_match_index = -1;
+	int global_restrict = (int)(window_size*0.5);
 	
 	sc.DataStartIndex = window_size-1;
 
@@ -594,9 +787,15 @@ int search_similarity_single_noLB(SCFloatArray query, SCFloatArray candidate, in
 
 			for( i=0;i<window_size;i++){
 				for( j=0;j<window_size;j++){
-					float d = (temp_x[i]-temp_y[j]);
-					float cost = d*d;
-					temp[i+1][j+1] = min_cost(temp[i+1][j]+cost,temp[i][j+1]+cost,temp[i][j]+cost);
+					// float d = (temp_x[i]-temp_y[j]);
+					// float cost = d*d;
+					// temp[i+1][j+1] = min_cost(temp[i+1][j]+cost,temp[i][j+1]+cost,temp[i][j]+cost);
+					if(abs(i-j)<=global_restrict){
+						float d = (temp_x[i]-temp_y[j]);
+						float cost = d*d;
+						temp[i+1][j+1] = min_cost(temp[i+1][j]+cost,temp[i][j+1]+cost,temp[i][j]+cost);
+					
+					}
 					
 					
 				}
@@ -622,6 +821,104 @@ int search_similarity_single_noLB(SCFloatArray query, SCFloatArray candidate, in
 	}
 	return best_match_index;
 
+}
+int search_similarity_Euclidean_early_abandon(SCFloatArray query, SCFloatArray candidate, int window_size,int candidate_len,int thread_num,SCStudyInterfaceRef sc){
+	float best_match = INF;
+	int best_match_index = -1;
+
+	float* temp_x;
+	temp_x = (float*)malloc( window_size*sizeof(float) );
+	Z_Score(query,window_size,window_size-1,temp_x);
+
+	sc.DataStartIndex = window_size-1;
+
+	#pragma omp parallel for num_threads(thread_num)
+	for(int BarIndex=sc.UpdateStartIndex;BarIndex<candidate_len;BarIndex++){
+		int i=0;
+		float cost=0;
+		float dist=0;
+		bool flag = false;
+		float mean = SMA(candidate,window_size,BarIndex);
+		float sd = Standard_Deviation(candidate,window_size,BarIndex);
+		
+		while((i<window_size)&&dist<best_match){
+			cost=(temp_x[i]-(candidate[BarIndex-(window_size-1- i)]-mean)/sd);
+			dist +=pow(cost,2);
+
+			i++;
+		}
+		
+		
+		if(dist<best_match){
+			flag=true;
+		}
+		if(flag){
+			#pragma omp critical
+			{
+				if(dist<best_match){
+					best_match = dist;
+					best_match_index = BarIndex;
+				}
+
+			}
+		}
+	}
+	free((void *)temp_x);
+	
+	return best_match_index;
+		
+}
+
+
+int search_similarity_Euclidean(SCFloatArray query, SCFloatArray candidate, int window_size,int candidate_len,int thread_num,SCStudyInterfaceRef sc){
+	float best_match = INF;
+	int best_match_index = -1;
+
+	float* temp_x;
+	temp_x = (float*)malloc( window_size*sizeof(float) );
+	Z_Score(query,window_size,window_size-1,temp_x);
+
+	sc.DataStartIndex = window_size-1;
+
+	//#pragma omp parallel for num_threads(thread_num)
+	for(int BarIndex=sc.UpdateStartIndex;BarIndex<candidate_len;BarIndex++){
+		int i=0;
+		float cost=0;
+		float dist=0;
+		bool flag = false;
+
+		float* temp_y;
+		temp_y = (float*)malloc( window_size*sizeof(float) );
+		Z_Score(candidate,window_size,BarIndex,temp_y);
+		
+		
+		while((i<window_size)){
+			cost=(temp_x[i]-temp_y[i]);
+			dist +=pow(cost,2);
+
+			i++;
+		}
+		
+		
+		if(dist<best_match){
+			flag=true;
+		}
+		if(flag){
+			//#pragma omp critical
+			{
+				if(dist<best_match){
+					best_match = dist;
+					best_match_index = BarIndex;
+				}
+
+			}
+		}
+		free((void *)temp_y);
+	}
+	free((void *)temp_x);
+	
+	return best_match_index;
+		
 }
 
 //********************************************************************
@@ -1300,7 +1597,249 @@ SCSFExport scsf_similarity_dtw_openmp(SCStudyInterfaceRef sc){
 				
 				if(BarIndex>=window_size-1 ){
 					
+					//double res = DWT(sc.BaseData[SC_LAST],S1Array,window_size,window_size,BarIndex);
+					double res = DWT_Global_restrict(sc.BaseData[SC_LAST],S1Array,window_size,window_size,BarIndex);
+					sim[BarIndex] =  (float)res;
+
+					if(second_symbol){
+						double res2 = DWT(sc.BaseData[SC_LAST],S2Array,window_size,window_size,BarIndex);					
+						sim2[BarIndex] = (float)res2;
+					}
+					
+				}
+				
+				
+			}
+				
+				// Subgraph_Output[BarIndex] = 7;
+		}
+		else{
+			sc.AddMessageToLog("the length of the data of the new symbol is 0",1);
+		}
+	}
+	else{
+			sc.AddMessageToLog("error happened when opening the data of the new symbol",1);
+	}
+	
+}
+
+SCSFExport scsf_similarity_dtw_openmp_no_restrict(SCStudyInterfaceRef sc){
+	SCSubgraphRef sim = sc.Subgraph[0];
+	SCSubgraphRef sim2 = sc.Subgraph[1];
+	SCInputRef SYMBOL1 = sc.Input[11];
+    SCInputRef SYMBOL1Subgraph = sc.Input[12];
+    SCInputRef SYMBOL2 = sc.Input[13];
+    SCInputRef SYMBOL2Subgraph = sc.Input[14];
+
+    if (sc.SetDefaults)  
+	{
+		sc.GraphName = "similarity_dtw_openmp_no_restrict";
+		
+		sc.StudyDescription = "This function is an implementation of the dtw function using openmp ";
+		
+		sc.AutoLoop = 0;  // true
+		sc.FreeDLL = 1;
+		sc.CalculationPrecedence = LOW_PREC_LEVEL;
+		
+		// Set the Chart Region to draw the graph in.  Region 0 is the main
+		// price graph region.
+		sc.GraphRegion = 1;
+
+		sc.Input[0].Name = "SYMBOL";
+		sc.Input[0].SetString(sc.GetRealTimeSymbol());
+		sc.Input[1].Name = "num_threads";
+		sc.Input[1].SetInt(8);
+		// sc.Input[2].Name="Sequence normalization";
+		// sc.Input[2].SetYesNo(1);
+		// sc.Input[3].Name = "mean length for sequence normalization ";
+		// sc.Input[3].SetInt(10);
+		// sc.Input[4].Name = "standard_deviation length for sequence normalization";
+		// sc.Input[4].SetInt(10);
+		sc.Input[5].Name = "similarity window size ";
+		sc.Input[5].SetInt(300);
+		sc.Input[6].Name = "SYMBOL2";
+		sc.Input[6].SetString(sc.GetRealTimeSymbol());
+		sc.Input[7].Name="Second Symbol";
+		sc.Input[7].SetYesNo(0);
+		sc.Input[8].Name="historical data";
+		sc.Input[8].SetYesNo(0);
+		sc.Input[9].Name="SECONDS_PER_MINUTE";
+		sc.Input[9].SetInt(1);
+		sc.Input[10].Name = "Interpolation";
+		sc.Input[10].SetYesNo(1);
+		SYMBOL1.Name = "SYMBOL1_Interpolation";
+        SYMBOL1.SetStudyID(0);
+        SYMBOL1Subgraph.Name = "Price type for symbol 1";
+        SYMBOL1Subgraph.SetSubgraphIndex(3);
+
+        SYMBOL2.Name = "SYMBOL2_Interpolation";
+        SYMBOL2.SetStudyID(0);
+        SYMBOL2Subgraph.Name = "Price type for symbol 2";
+        SYMBOL2Subgraph.SetSubgraphIndex(3);
+		
+		sim2.Name = "the result2 of similarity";
+		sim2.PrimaryColor = RGB(0,255,0);
+		sim2.DrawStyle = DRAWSTYLE_LINE;
+
+		// Set the name of the first subgraph
+		sim.Name = "the result1 of similarity";
+
+		// Set the color and style of the subgraph line.  
+		sim.PrimaryColor = RGB(255,0,0);  // Red
+		sim.DrawStyle = DRAWSTYLE_LINE;
+		
+		// Must return before doing any data processing if sc.SetDefaults is set
+		return;
+	}
+
+
+
+	//get the data of another symbol
+	int& ChartNumber = sc.GetPersistentInt(1);
+	int& ChartNumber2 = sc.GetPersistentInt(2);
+	int threads_count =  sc.Input[1].GetInt();
+	// bool sequence_normalization = sc.Input[2].GetYesNo();
+	// int  mean_len = sc.Input[3].GetInt();
+	// int  standard_deviation_length = sc.Input[4].GetInt();
+	int window_size = sc.Input[5].GetInt();
+	bool second_symbol = sc.Input[7].GetYesNo();
+	bool historiy = sc.Input[8].GetYesNo();
+	int minutes = sc.Input[9].GetInt();
+	bool Interpolation = sc.Input[10].GetYesNo();
+
+
+	//data check
+
+	if(threads_count<=1){
+		threads_count = 1;
+		sc.Input[1].SetInt(threads_count);
+	}
+	else if(threads_count>20){
+		threads_count = 20;
+		sc.Input[1].SetInt(threads_count);
+	}
+
+	// if(mean_len<=10){
+	// 	mean_len = 10;
+	// 	sc.Input[3].SetInt(mean_len);
+	// }
+	// else if(mean_len>100){
+	// 	mean_len = 100;
+	// 	sc.Input[3].SetInt(mean_len);
+	// }
+
+	// if(standard_deviation_length<=10){
+	// 	standard_deviation_length = 10;
+	// 	sc.Input[4].SetInt(standard_deviation_length);
+	// }
+	// else if(standard_deviation_length>100){
+	// 	standard_deviation_length = 100;
+	// 	sc.Input[4].SetInt(standard_deviation_length);
+	// }
+
+	if(window_size<=7){
+		window_size = 7;
+		sc.Input[5].SetInt(window_size);
+	}
+	else if(window_size>=5000){
+		window_size = 500;
+		sc.Input[5].SetInt(window_size);
+	}
+	
+
+
+	int ChartNumberArray[2];
+	if (sc.IsFullRecalculation && !Interpolation)
+	{
+		GetSymbolData(ChartNumberArray ,sc.Input[0].GetString(),minutes,historiy,second_symbol,sc.Input[6].GetString(),ChartNumber,sc);
+		ChartNumber = ChartNumberArray[0];
+		ChartNumber2 = ChartNumberArray[1];
+		
+		
+		
+
+	}
+
+
+	if ((ChartNumber != 0 && ChartNumber2!=0)||(ChartNumber!=0 && !second_symbol) || Interpolation)
+	{
+		
+		SCFloatArray S1Array,S2Array;
+
+		SCGraphData ReferenceChartData;
+		SCGraphData ReferenceChartData2;
+
+		// Get the arrays from the reference chart
+		if(!Interpolation){
+			sc.GetChartBaseData(ChartNumber, ReferenceChartData);
+			S1Array = ReferenceChartData[SC_LAST];
+			if(second_symbol){
+				sc.GetChartBaseData(ChartNumber2, ReferenceChartData2);
+				S2Array = ReferenceChartData2[SC_LAST];
+			}
+		}
+		else{
+			
+			sc.GetStudyArrayUsingID(SYMBOL1.GetStudyID(),SYMBOL1Subgraph.GetSubgraphIndex(),S1Array);
+
+			if(second_symbol){
+				sc.GetStudyArrayUsingID(SYMBOL2.GetStudyID(),SYMBOL2Subgraph.GetSubgraphIndex(),S2Array);
+			}
+		}
+		
+
+		
+		if ((S1Array.GetArraySize() > 0 &&S2Array.GetArraySize() > 0)||(S1Array.GetArraySize() > 0 && !second_symbol))
+		{
+			
+			
+			// int sequence_normalization_start = 0;
+			// if(!sequence_normalization){
+			// 	int len_x=sc.ArraySize-1;
+			// 	int len_y = S1Array.GetArraySize()-1;
+			// 	for(int i=0;i<len_x;i++){
+			// 	sim.Arrays[0][i] = sc.BaseData[SC_LAST][i+1]-sc.BaseData[SC_LAST][i];
+			// 	sim.Arrays[1][i] = S1Array[i+1]-S1Array[i];
+			// 	if(second_symbol){
+			// 		sim.Arrays[2][i] = S2Array[i+1]-S2Array[i];
+			// 	}
+				
+			// 	}
+			// }
+			// else{
+
+			// 	sequence_normalization_start = mean_len-1;
+			// 	if((standard_deviation_length-1)>sequence_normalization_start){
+			// 		sequence_normalization_start = standard_deviation_length-1;
+			// 	}
+
+			// 	#pragma omp parallel for num_threads(threads_count)
+			// 	for(int i = sequence_normalization_start;i<sc.ArraySize;i++){
+
+			// 		sim.Arrays[0][i] = (sc.BaseData[SC_LAST][i]-SMA(sc.BaseData[SC_LAST],mean_len,i))/Standard_Deviation(sc.BaseData[SC_LAST],standard_deviation_length,i);
+			// 		sim.Arrays[1][i] = (S1Array[i]-SMA(S1Array,mean_len,i))/Standard_Deviation(S1Array,standard_deviation_length,i);
+			// 		if(second_symbol){
+			// 			sim.Arrays[2][i] = (S2Array[i]-SMA(S2Array,mean_len,i))/Standard_Deviation(S2Array,standard_deviation_length,i);
+			// 		}
+					
+			// 	}
+
+			// }
+			
+
+
+			sc.DataStartIndex = 0;
+			//#pragma omp parallel for num_threads(threads_count)
+			for (int BarIndex = sc.UpdateStartIndex; BarIndex < sc.ArraySize; BarIndex++){
+				
+				//data1[BarIndex] = sim.Arrays[0][BarIndex];
+				//data2[BarIndex] = sim.Arrays[1][BarIndex];
+				//data[BarIndex] = ReferenceChartData[SC_LAST][BarIndex];
+				
+				if(BarIndex>=window_size-1 ){
+					
 					double res = DWT(sc.BaseData[SC_LAST],S1Array,window_size,window_size,BarIndex);
+					//double res = DWT_Global_restrict(sc.BaseData[SC_LAST],S1Array,window_size,window_size,BarIndex);
 					sim[BarIndex] =  (float)res;
 
 					if(second_symbol){
@@ -2146,7 +2685,7 @@ SCSFExport scsf_similarity_dtw_parallel(SCStudyInterfaceRef sc){
 
 			sc.DataStartIndex = 0;
 			
-			//#pragma omp parallel for num_threads(threads_count)
+			#pragma omp parallel num_threads(threads_count)
 			for (int BarIndex = sc.UpdateStartIndex; BarIndex < sc.ArraySize; BarIndex++){
 				
 				//data1[BarIndex] = sim.Arrays[0][BarIndex];
@@ -2186,6 +2725,7 @@ SCSFExport scsf_similarity_dtw_parallel(SCStudyInterfaceRef sc){
 
 SCSFExport scsf_search_similarity(SCStudyInterfaceRef sc){
 	SCSubgraphRef sim = sc.Subgraph[0];
+	SCSubgraphRef res_sequence = sc.Subgraph[1];
 	SCInputRef SYMBOL1 = sc.Input[0];
     SCInputRef SYMBOL1Subgraph = sc.Input[1];
     if(sc.SetDefaults){
@@ -2199,9 +2739,12 @@ SCSFExport scsf_search_similarity(SCStudyInterfaceRef sc){
 		
 		// Set the Chart Region to draw the graph in.  Region 0 is the main
 		// price graph region.
-		sc.GraphRegion = 0;
+		sc.GraphRegion = 1;
+		sc.Input[2].Name = "Interpolation";
+		sc.Input[2].SetYesNo(0);
+		sc.Input[3].Name = "Symbol";
+		sc.Input[3].SetString(sc.GetRealTimeSymbol());
 
-	
 		sc.Input[4].Name = "num_threads";
 		sc.Input[4].SetInt(8);
 		sc.Input[5].Name = "similarity window size ";
@@ -2211,11 +2754,17 @@ SCSFExport scsf_search_similarity(SCStudyInterfaceRef sc){
 		sc.Input[8].SetYesNo(0);
 		sc.Input[9].Name="SECONDS_PER_MINUTE";
 		sc.Input[9].SetInt(1);
+		sc.Input[10].Name = "Additonal Symbol";
+		sc.Input[10].SetYesNo(0);
 		
 		SYMBOL1.Name = "SYMBOL1";
         SYMBOL1.SetStudyID(0);
         SYMBOL1Subgraph.Name = "Price type for symbol 1";
         SYMBOL1Subgraph.SetSubgraphIndex(3);
+
+        res_sequence.Name = "result price time series";
+        res_sequence.PrimaryColor = RGB(255,0,0);
+       	res_sequence.DrawStyle = DRAWSTYLE_LINE;
 
 		
 		// Must return before doing any data processing if sc.SetDefaults is set
@@ -2228,6 +2777,8 @@ SCSFExport scsf_search_similarity(SCStudyInterfaceRef sc){
 	
 	int window_size = sc.Input[5].GetInt();
 	bool historiy = sc.Input[8].GetYesNo();
+	bool Interpolation = sc.Input[2].GetYesNo();
+	bool Additonal_symbol = sc.Input[10].GetYesNo();
 	int minutes = sc.Input[9].GetInt();
 
     if(threads_count<=1){
@@ -2250,36 +2801,1383 @@ SCSFExport scsf_search_similarity(SCStudyInterfaceRef sc){
 	}
 
 
-	SCFloatArray S1Array;
-
-	
-
-	// Get the arrays from the reference study
-	
-	
-	sc.GetStudyArrayUsingID(SYMBOL1.GetStudyID(),SYMBOL1Subgraph.GetSubgraphIndex(),S1Array);
-	
-	
-
-	
-
-	if (S1Array.GetArraySize() > 0){
-
-		// query secquence
-		int length = sc.ArraySize;	
-		for(int i=0;i<window_size;i++){
-			sim.Arrays[0][i] = sc.BaseData[SC_LAST][length-window_size+i];
-		}
-		int res =  search_similarity(sim.Arrays[0], S1Array, window_size,sc.ArraySize,threads_count,sc);
-		char alert[20];
-		sprintf_s(alert,"%d",res);
-		sc.AddMessageToLog(SCString(alert),1);
 
 
-
+	int ChartNumberArray[2];
+	if (sc.IsFullRecalculation && !Interpolation)
+	{
+		GetSymbolData(ChartNumberArray ,sc.Input[0].GetString(),minutes,historiy,false,NULL,ChartNumber,sc);
+		ChartNumber = ChartNumberArray[0];
+				
 
 	}
-	
-    
+
+	if ((ChartNumber != 0 )|| Interpolation||!Additonal_symbol){
+		SCFloatArray S1Array;
+		SCGraphData ReferenceChartData;
+		if(Interpolation){
+			sc.GetStudyArrayUsingID(SYMBOL1.GetStudyID(),SYMBOL1Subgraph.GetSubgraphIndex(),S1Array);
+		}
+		else if(ChartNumber != 0){
+			sc.GetChartBaseData(ChartNumber, ReferenceChartData);
+			S1Array = ReferenceChartData[SC_LAST];
+		}
+
+		if (S1Array.GetArraySize() > 0 || !Additonal_symbol){
+
+		// query secquence
+			if(Additonal_symbol){
+				int length = sc.ArraySize;	
+				for(int i=0;i<window_size;i++){
+					sim.Arrays[0][i] = sc.BaseData[SC_LAST][length-window_size+i];
+				}
+				int res =  search_similarity(sim.Arrays[0], S1Array, window_size,S1Array.GetArraySize(),threads_count,sc);
+				
+				int temp_start = length-window_size;
+				for(int i=res-window_size+1;i<res;i++){
+					res_sequence[temp_start++] = S1Array[i];
+				}
+				char alert1[20];
+				sprintf_s(alert1,"%d",res);
+				sc.AddMessageToLog(SCString(alert1),1);
+
+
+				SCDateTime start_t,end_t;
+				int year1,year2,month1,month2,day1,day2,hour1,hour2,min1,min2;
+
+				if(Interpolation){
+					start_t = sc.BaseDateTimeIn[res-window_size+1];
+					end_t = sc.BaseDateTimeIn[res];
+					
+				}
+				else{
+					SCDateTimeArray DateTimeArray;
+					sc.GetChartDateTimeArray(ChartNumber, DateTimeArray);
+					start_t = DateTimeArray[res-window_size+1];
+					end_t = DateTimeArray[res];
+
+				}
+				
+				
+				
+
+				year1 = start_t.GetYear();
+				month1 = start_t.GetMonth();
+				day1 = start_t.GetDay();
+				hour1 = start_t.GetHour();
+				min1 = start_t.GetMinute();
+
+				year2 = end_t.GetYear();
+				month2 = end_t.GetMonth();
+				day2 = end_t.GetDay();
+				hour2 = end_t.GetHour();
+				min2 = end_t.GetMinute();
+				char temp1[5],temp2[5],temp3[5],temp4[5],temp5[5],alert[50];
+
+				sprintf_s(temp1,"%d",year1);
+				sprintf_s(temp2,"%d",month1);
+				sprintf_s(temp3,"%d",day1);
+				sprintf_s(temp4,"%d",hour1);
+				sprintf_s(temp5,"%d",min1);
+
+				strcpy(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				strcat(alert,"--");
+
+				sprintf_s(temp1,"%d",year2);
+				sprintf_s(temp2,"%d",month2);
+				sprintf_s(temp3,"%d",day2);
+				sprintf_s(temp4,"%d",hour2);
+				sprintf_s(temp5,"%d",min2);
+
+				strcat(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				
+
+				sc.AddMessageToLog(SCString(alert),1);
+			}
+			else{
+
+				int length = sc.ArraySize;	
+				for(int i=0;i<window_size;i++){
+					sim.Arrays[0][i] = sc.BaseData[SC_LAST][length-window_size+i];
+				}
+				int res =  search_similarity(sim.Arrays[0], sc.BaseData[SC_LAST], window_size,length-window_size-1,threads_count,sc);
+				int temp_start = length-window_size;
+				for(int i=res-window_size+1;i<res;i++){
+					res_sequence[temp_start++] =sc.BaseData[SC_LAST][i];
+				}
+				char alert1[20];
+				sprintf_s(alert1,"%d",res);
+				sc.AddMessageToLog(SCString(alert1),1);
+
+
+				SCDateTime start_t,end_t;
+				int year1,year2,month1,month2,day1,day2,hour1,hour2,min1,min2;
+
+				
+				start_t = sc.BaseDateTimeIn[res-window_size+1];
+				end_t = sc.BaseDateTimeIn[res];
+				
+				year1 = start_t.GetYear();
+				month1 = start_t.GetMonth();
+				day1 = start_t.GetDay();
+				hour1 = start_t.GetHour();
+				min1 = start_t.GetMinute();
+
+				year2 = end_t.GetYear();
+				month2 = end_t.GetMonth();
+				day2 = end_t.GetDay();
+				hour2 = end_t.GetHour();
+				min2 = end_t.GetMinute();
+				char temp1[5],temp2[5],temp3[5],temp4[5],temp5[5],alert[50];
+
+				sprintf_s(temp1,"%d",year1);
+				sprintf_s(temp2,"%d",month1);
+				sprintf_s(temp3,"%d",day1);
+				sprintf_s(temp4,"%d",hour1);
+				sprintf_s(temp5,"%d",min1);
+
+				strcpy(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				strcat(alert,"--");
+
+				sprintf_s(temp1,"%d",year2);
+				sprintf_s(temp2,"%d",month2);
+				sprintf_s(temp3,"%d",day2);
+				sprintf_s(temp4,"%d",hour2);
+				sprintf_s(temp5,"%d",min2);
+
+				strcat(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				
+
+				sc.AddMessageToLog(SCString(alert),1);
+			}
+			
+
+
+
+		}
+
+	}
+
+
 }
 
+
+
+SCSFExport scsf_search_similarity_no_improvement(SCStudyInterfaceRef sc){
+	SCSubgraphRef sim = sc.Subgraph[0];
+	SCSubgraphRef res_sequence = sc.Subgraph[1];
+	SCInputRef SYMBOL1 = sc.Input[0];
+    SCInputRef SYMBOL1Subgraph = sc.Input[1];
+    if(sc.SetDefaults){
+    	sc.GraphName = "search similarity duration no improvement";
+		
+		sc.StudyDescription = "This function is an implementation to search the most similar duration";
+		
+		sc.AutoLoop = 0;  // true
+		sc.FreeDLL = 1;
+		sc.CalculationPrecedence = LOW_PREC_LEVEL;
+		
+		// Set the Chart Region to draw the graph in.  Region 0 is the main
+		// price graph region.
+		sc.GraphRegion = 1;
+		sc.Input[2].Name = "Interpolation";
+		sc.Input[2].SetYesNo(0);
+		sc.Input[3].Name = "Symbol";
+		sc.Input[3].SetString(sc.GetRealTimeSymbol());
+
+		sc.Input[4].Name = "num_threads";
+		sc.Input[4].SetInt(8);
+		sc.Input[5].Name = "similarity window size ";
+		sc.Input[5].SetInt(300);
+		
+		sc.Input[8].Name="historical data";
+		sc.Input[8].SetYesNo(0);
+		sc.Input[9].Name="SECONDS_PER_MINUTE";
+		sc.Input[9].SetInt(1);
+		sc.Input[10].Name = "Additonal Symbol";
+		sc.Input[10].SetYesNo(0);
+		
+		SYMBOL1.Name = "SYMBOL1";
+        SYMBOL1.SetStudyID(0);
+        SYMBOL1Subgraph.Name = "Price type for symbol 1";
+        SYMBOL1Subgraph.SetSubgraphIndex(3);
+
+        
+       	res_sequence.Name = "result price time series";
+       	res_sequence.PrimaryColor = RGB(255,0,0);
+       	res_sequence.DrawStyle = DRAWSTYLE_LINE;
+
+		
+		// Must return before doing any data processing if sc.SetDefaults is set
+		return;
+    }
+
+
+    int& ChartNumber = sc.GetPersistentInt(1);
+	int threads_count =  sc.Input[4].GetInt();
+	
+	int window_size = sc.Input[5].GetInt();
+	bool historiy = sc.Input[8].GetYesNo();
+	bool Interpolation = sc.Input[2].GetYesNo();
+	bool Additonal_symbol = sc.Input[10].GetYesNo();
+	int minutes = sc.Input[9].GetInt();
+
+    if(threads_count<=1){
+		threads_count = 1;
+		sc.Input[1].SetInt(threads_count);
+	}
+	else if(threads_count>20){
+		threads_count = 20;
+		sc.Input[1].SetInt(threads_count);
+	}
+
+
+	if(window_size<=7){
+		window_size = 7;
+		sc.Input[5].SetInt(window_size);
+	}
+	else if(window_size>=5000){
+		window_size = 5000;
+		sc.Input[5].SetInt(window_size);
+	}
+
+
+
+
+	int ChartNumberArray[2];
+	if (sc.IsFullRecalculation && !Interpolation)
+	{
+		GetSymbolData(ChartNumberArray ,sc.Input[0].GetString(),minutes,historiy,false,NULL,ChartNumber,sc);
+		ChartNumber = ChartNumberArray[0];
+				
+
+	}
+
+	if ((ChartNumber != 0 )|| Interpolation||!Additonal_symbol){
+		SCFloatArray S1Array;
+		SCGraphData ReferenceChartData;
+		if(Interpolation && Additonal_symbol){
+			sc.GetStudyArrayUsingID(SYMBOL1.GetStudyID(),SYMBOL1Subgraph.GetSubgraphIndex(),S1Array);
+		}
+		else if(ChartNumber != 0 && Additonal_symbol){
+			sc.GetChartBaseData(ChartNumber, ReferenceChartData);
+			S1Array = ReferenceChartData[SC_LAST];
+		}
+
+		if (!Additonal_symbol){
+
+		// query secquence
+			if(Additonal_symbol){
+				int length = sc.ArraySize;	
+				for(int i=0;i<window_size;i++){
+					sim.Arrays[0][i] = sc.BaseData[SC_LAST][length-window_size+i];
+				}
+				int res =  search_similarity(sim.Arrays[0], S1Array, window_size,S1Array.GetArraySize(),threads_count,sc);
+				int temp_start = length-window_size;
+				for(int i=res-window_size+1;i<res;i++){
+					res_sequence[temp_start++] = S1Array[i];
+				}
+
+				char alert1[20];
+				sprintf_s(alert1,"%d",res);
+				sc.AddMessageToLog(SCString(alert1),1);
+
+
+				SCDateTime start_t,end_t;
+				int year1,year2,month1,month2,day1,day2,hour1,hour2,min1,min2;
+
+				if(Interpolation){
+					start_t = sc.BaseDateTimeIn[res-window_size+1];
+					end_t = sc.BaseDateTimeIn[res];
+					
+				}
+				else{
+					SCDateTimeArray DateTimeArray;
+					sc.GetChartDateTimeArray(ChartNumber, DateTimeArray);
+					start_t = DateTimeArray[res-window_size+1];
+					end_t = DateTimeArray[res];
+
+				}
+				
+				
+				
+
+				year1 = start_t.GetYear();
+				month1 = start_t.GetMonth();
+				day1 = start_t.GetDay();
+				hour1 = start_t.GetHour();
+				min1 = start_t.GetMinute();
+
+				year2 = end_t.GetYear();
+				month2 = end_t.GetMonth();
+				day2 = end_t.GetDay();
+				hour2 = end_t.GetHour();
+				min2 = end_t.GetMinute();
+				char temp1[5],temp2[5],temp3[5],temp4[5],temp5[5],alert[50];
+
+				sprintf_s(temp1,"%d",year1);
+				sprintf_s(temp2,"%d",month1);
+				sprintf_s(temp3,"%d",day1);
+				sprintf_s(temp4,"%d",hour1);
+				sprintf_s(temp5,"%d",min1);
+
+				strcpy(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				strcat(alert,"--");
+
+				sprintf_s(temp1,"%d",year2);
+				sprintf_s(temp2,"%d",month2);
+				sprintf_s(temp3,"%d",day2);
+				sprintf_s(temp4,"%d",hour2);
+				sprintf_s(temp5,"%d",min2);
+
+				strcat(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				
+
+				sc.AddMessageToLog(SCString(alert),1);
+			}
+			else{
+
+				int length = sc.ArraySize;	
+				for(int i=0;i<window_size;i++){
+					sim.Arrays[0][i] = sc.BaseData[SC_LAST][length-window_size+i];
+				}
+				int res =  search_similarity_single_noLB_noRestrict(sim.Arrays[0], sc.BaseData[SC_LAST], window_size,length-window_size-1,sc);
+				int temp_start = length-window_size;
+				for(int i=res-window_size+1;i<res;i++){
+					res_sequence[temp_start++] = sc.BaseData[SC_LAST][i];
+				}
+				char alert1[20];
+				sprintf_s(alert1,"%d",res);
+				sc.AddMessageToLog(SCString(alert1),1);
+
+
+				SCDateTime start_t,end_t;
+				int year1,year2,month1,month2,day1,day2,hour1,hour2,min1,min2;
+
+				
+				start_t = sc.BaseDateTimeIn[res-window_size+1];
+				end_t = sc.BaseDateTimeIn[res];
+				
+				year1 = start_t.GetYear();
+				month1 = start_t.GetMonth();
+				day1 = start_t.GetDay();
+				hour1 = start_t.GetHour();
+				min1 = start_t.GetMinute();
+
+				year2 = end_t.GetYear();
+				month2 = end_t.GetMonth();
+				day2 = end_t.GetDay();
+				hour2 = end_t.GetHour();
+				min2 = end_t.GetMinute();
+				char temp1[5],temp2[5],temp3[5],temp4[5],temp5[5],alert[50];
+
+				sprintf_s(temp1,"%d",year1);
+				sprintf_s(temp2,"%d",month1);
+				sprintf_s(temp3,"%d",day1);
+				sprintf_s(temp4,"%d",hour1);
+				sprintf_s(temp5,"%d",min1);
+
+				strcpy(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				strcat(alert,"--");
+
+				sprintf_s(temp1,"%d",year2);
+				sprintf_s(temp2,"%d",month2);
+				sprintf_s(temp3,"%d",day2);
+				sprintf_s(temp4,"%d",hour2);
+				sprintf_s(temp5,"%d",min2);
+
+				strcat(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				
+
+				sc.AddMessageToLog(SCString(alert),1);
+			}
+			
+
+
+
+		}
+
+	}
+
+
+}
+
+SCSFExport scsf_search_similarity_Euclidean_early_abandon(SCStudyInterfaceRef sc){
+	SCSubgraphRef sim = sc.Subgraph[0];
+	SCInputRef SYMBOL1 = sc.Input[0];
+    SCInputRef SYMBOL1Subgraph = sc.Input[1];
+    if(sc.SetDefaults){
+    	sc.GraphName = "search similarity duration Euclidean early abandoning";
+		
+		sc.StudyDescription = "This function is an implementation to search the most similar duration";
+		
+		sc.AutoLoop = 0;  // true
+		sc.FreeDLL = 1;
+		sc.CalculationPrecedence = LOW_PREC_LEVEL;
+		
+		// Set the Chart Region to draw the graph in.  Region 0 is the main
+		// price graph region.
+		sc.GraphRegion = 0;
+		sc.Input[2].Name = "Interpolation";
+		sc.Input[2].SetYesNo(0);
+		sc.Input[3].Name = "Symbol";
+		sc.Input[3].SetString(sc.GetRealTimeSymbol());
+
+		sc.Input[4].Name = "num_threads";
+		sc.Input[4].SetInt(8);
+		sc.Input[5].Name = "similarity window size ";
+		sc.Input[5].SetInt(300);
+		
+		sc.Input[8].Name="historical data";
+		sc.Input[8].SetYesNo(0);
+		sc.Input[9].Name="SECONDS_PER_MINUTE";
+		sc.Input[9].SetInt(1);
+		sc.Input[10].Name = "Additonal Symbol";
+		sc.Input[10].SetYesNo(0);
+		
+		SYMBOL1.Name = "SYMBOL1";
+        SYMBOL1.SetStudyID(0);
+        SYMBOL1Subgraph.Name = "Price type for symbol 1";
+        SYMBOL1Subgraph.SetSubgraphIndex(3);
+
+		
+		// Must return before doing any data processing if sc.SetDefaults is set
+		return;
+    }
+
+
+    int& ChartNumber = sc.GetPersistentInt(1);
+	int threads_count =  sc.Input[4].GetInt();
+	
+	int window_size = sc.Input[5].GetInt();
+	bool historiy = sc.Input[8].GetYesNo();
+	bool Interpolation = sc.Input[2].GetYesNo();
+	bool Additonal_symbol = sc.Input[10].GetYesNo();
+	int minutes = sc.Input[9].GetInt();
+
+    if(threads_count<=1){
+		threads_count = 1;
+		sc.Input[1].SetInt(threads_count);
+	}
+	else if(threads_count>20){
+		threads_count = 20;
+		sc.Input[1].SetInt(threads_count);
+	}
+
+
+	if(window_size<=7){
+		window_size = 7;
+		sc.Input[5].SetInt(window_size);
+	}
+	else if(window_size>=5000){
+		window_size = 5000;
+		sc.Input[5].SetInt(window_size);
+	}
+
+
+
+
+	int ChartNumberArray[2];
+	if (sc.IsFullRecalculation && !Interpolation)
+	{
+		GetSymbolData(ChartNumberArray ,sc.Input[0].GetString(),minutes,historiy,false,NULL,ChartNumber,sc);
+		ChartNumber = ChartNumberArray[0];
+				
+
+	}
+
+	if ((ChartNumber != 0 )|| Interpolation||!Additonal_symbol){
+		SCFloatArray S1Array;
+		SCGraphData ReferenceChartData;
+		if(Interpolation){
+			sc.GetStudyArrayUsingID(SYMBOL1.GetStudyID(),SYMBOL1Subgraph.GetSubgraphIndex(),S1Array);
+		}
+		else if(ChartNumber != 0){
+			sc.GetChartBaseData(ChartNumber, ReferenceChartData);
+			S1Array = ReferenceChartData[SC_LAST];
+		}
+
+		if (S1Array.GetArraySize() > 0 || !Additonal_symbol){
+
+		// query secquence
+			if(Additonal_symbol){
+				int length = sc.ArraySize;	
+				for(int i=0;i<window_size;i++){
+					sim.Arrays[0][i] = sc.BaseData[SC_LAST][length-window_size+i];
+				}
+				int res =  search_similarity_Euclidean_early_abandon(sim.Arrays[0], S1Array, window_size,S1Array.GetArraySize(),threads_count,sc);
+				char alert1[20];
+				sprintf_s(alert1,"%d",res);
+				sc.AddMessageToLog(SCString(alert1),1);
+
+
+				SCDateTime start_t,end_t;
+				int year1,year2,month1,month2,day1,day2,hour1,hour2,min1,min2;
+
+				if(Interpolation){
+					start_t = sc.BaseDateTimeIn[res-window_size+1];
+					end_t = sc.BaseDateTimeIn[res];
+				}
+				else{
+					SCDateTimeArray DateTimeArray;
+					sc.GetChartDateTimeArray(ChartNumber, DateTimeArray);
+					start_t = DateTimeArray[res-window_size+1];
+					end_t = DateTimeArray[res];
+
+				}
+				
+				
+				
+
+				year1 = start_t.GetYear();
+				month1 = start_t.GetMonth();
+				day1 = start_t.GetDay();
+				hour1 = start_t.GetHour();
+				min1 = start_t.GetMinute();
+
+				year2 = end_t.GetYear();
+				month2 = end_t.GetMonth();
+				day2 = end_t.GetDay();
+				hour2 = end_t.GetHour();
+				min2 = end_t.GetMinute();
+				char temp1[5],temp2[5],temp3[5],temp4[5],temp5[5],alert[50];
+
+				sprintf_s(temp1,"%d",year1);
+				sprintf_s(temp2,"%d",month1);
+				sprintf_s(temp3,"%d",day1);
+				sprintf_s(temp4,"%d",hour1);
+				sprintf_s(temp5,"%d",min1);
+
+				strcpy(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				strcat(alert,"--");
+
+				sprintf_s(temp1,"%d",year2);
+				sprintf_s(temp2,"%d",month2);
+				sprintf_s(temp3,"%d",day2);
+				sprintf_s(temp4,"%d",hour2);
+				sprintf_s(temp5,"%d",min2);
+
+				strcat(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				
+
+				sc.AddMessageToLog(SCString(alert),1);
+			}
+			else{
+
+				int length = sc.ArraySize;	
+				for(int i=0;i<window_size;i++){
+					sim.Arrays[0][i] = sc.BaseData[SC_LAST][length-window_size+i];
+				}
+				int res =  search_similarity_Euclidean_early_abandon(sim.Arrays[0], sc.BaseData[SC_LAST], window_size,length-window_size-1,threads_count,sc);
+				char alert1[20];
+				sprintf_s(alert1,"%d",res);
+				sc.AddMessageToLog(SCString(alert1),1);
+
+
+				SCDateTime start_t,end_t;
+				int year1,year2,month1,month2,day1,day2,hour1,hour2,min1,min2;
+
+				
+				start_t = sc.BaseDateTimeIn[res-window_size+1];
+				end_t = sc.BaseDateTimeIn[res];
+				
+				year1 = start_t.GetYear();
+				month1 = start_t.GetMonth();
+				day1 = start_t.GetDay();
+				hour1 = start_t.GetHour();
+				min1 = start_t.GetMinute();
+
+				year2 = end_t.GetYear();
+				month2 = end_t.GetMonth();
+				day2 = end_t.GetDay();
+				hour2 = end_t.GetHour();
+				min2 = end_t.GetMinute();
+				char temp1[5],temp2[5],temp3[5],temp4[5],temp5[5],alert[50];
+
+				sprintf_s(temp1,"%d",year1);
+				sprintf_s(temp2,"%d",month1);
+				sprintf_s(temp3,"%d",day1);
+				sprintf_s(temp4,"%d",hour1);
+				sprintf_s(temp5,"%d",min1);
+
+				strcpy(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				strcat(alert,"--");
+
+				sprintf_s(temp1,"%d",year2);
+				sprintf_s(temp2,"%d",month2);
+				sprintf_s(temp3,"%d",day2);
+				sprintf_s(temp4,"%d",hour2);
+				sprintf_s(temp5,"%d",min2);
+
+				strcat(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				
+
+				sc.AddMessageToLog(SCString(alert),1);
+			}
+			
+
+
+
+		}
+
+	}
+
+
+}
+
+SCSFExport scsf_search_similarity_Euclidean(SCStudyInterfaceRef sc){
+	SCSubgraphRef sim = sc.Subgraph[0];
+	SCInputRef SYMBOL1 = sc.Input[0];
+    SCInputRef SYMBOL1Subgraph = sc.Input[1];
+    if(sc.SetDefaults){
+    	sc.GraphName = "search similarity duration Euclidean ";
+		
+		sc.StudyDescription = "This function is an implementation to search the most similar duration";
+		
+		sc.AutoLoop = 0;  // true
+		sc.FreeDLL = 1;
+		sc.CalculationPrecedence = LOW_PREC_LEVEL;
+		
+		// Set the Chart Region to draw the graph in.  Region 0 is the main
+		// price graph region.
+		sc.GraphRegion = 0;
+		sc.Input[2].Name = "Interpolation";
+		sc.Input[2].SetYesNo(0);
+		sc.Input[3].Name = "Symbol";
+		sc.Input[3].SetString(sc.GetRealTimeSymbol());
+
+		sc.Input[4].Name = "num_threads";
+		sc.Input[4].SetInt(8);
+		sc.Input[5].Name = "similarity window size ";
+		sc.Input[5].SetInt(300);
+		
+		sc.Input[8].Name="historical data";
+		sc.Input[8].SetYesNo(0);
+		sc.Input[9].Name="SECONDS_PER_MINUTE";
+		sc.Input[9].SetInt(1);
+		sc.Input[10].Name = "Additonal Symbol";
+		sc.Input[10].SetYesNo(0);
+		
+		SYMBOL1.Name = "SYMBOL1";
+        SYMBOL1.SetStudyID(0);
+        SYMBOL1Subgraph.Name = "Price type for symbol 1";
+        SYMBOL1Subgraph.SetSubgraphIndex(3);
+
+		
+		// Must return before doing any data processing if sc.SetDefaults is set
+		return;
+    }
+
+
+    int& ChartNumber = sc.GetPersistentInt(1);
+	int threads_count =  sc.Input[4].GetInt();
+	
+	int window_size = sc.Input[5].GetInt();
+	bool historiy = sc.Input[8].GetYesNo();
+	bool Interpolation = sc.Input[2].GetYesNo();
+	bool Additonal_symbol = sc.Input[10].GetYesNo();
+	int minutes = sc.Input[9].GetInt();
+
+    if(threads_count<=1){
+		threads_count = 1;
+		sc.Input[1].SetInt(threads_count);
+	}
+	else if(threads_count>20){
+		threads_count = 20;
+		sc.Input[1].SetInt(threads_count);
+	}
+
+
+	if(window_size<=7){
+		window_size = 7;
+		sc.Input[5].SetInt(window_size);
+	}
+	else if(window_size>=5000){
+		window_size = 5000;
+		sc.Input[5].SetInt(window_size);
+	}
+
+
+
+
+	int ChartNumberArray[2];
+	if (sc.IsFullRecalculation && !Interpolation)
+	{
+		GetSymbolData(ChartNumberArray ,sc.Input[0].GetString(),minutes,historiy,false,NULL,ChartNumber,sc);
+		ChartNumber = ChartNumberArray[0];
+				
+
+	}
+
+	if ((ChartNumber != 0 )|| Interpolation||!Additonal_symbol){
+		SCFloatArray S1Array;
+		SCGraphData ReferenceChartData;
+		if(Interpolation){
+			sc.GetStudyArrayUsingID(SYMBOL1.GetStudyID(),SYMBOL1Subgraph.GetSubgraphIndex(),S1Array);
+		}
+		else if(ChartNumber != 0){
+			sc.GetChartBaseData(ChartNumber, ReferenceChartData);
+			S1Array = ReferenceChartData[SC_LAST];
+		}
+
+		if (S1Array.GetArraySize() > 0 || !Additonal_symbol){
+
+		// query secquence
+			if(Additonal_symbol){
+				int length = sc.ArraySize;	
+				for(int i=0;i<window_size;i++){
+					sim.Arrays[0][i] = sc.BaseData[SC_LAST][length-window_size+i];
+				}
+				int res =  search_similarity_Euclidean(sim.Arrays[0], S1Array, window_size,S1Array.GetArraySize(),threads_count,sc);
+				char alert1[20];
+				sprintf_s(alert1,"%d",res);
+				sc.AddMessageToLog(SCString(alert1),1);
+
+
+				SCDateTime start_t,end_t;
+				int year1,year2,month1,month2,day1,day2,hour1,hour2,min1,min2;
+
+				if(Interpolation){
+					start_t = sc.BaseDateTimeIn[res-window_size+1];
+					end_t = sc.BaseDateTimeIn[res];
+				}
+				else{
+					SCDateTimeArray DateTimeArray;
+					sc.GetChartDateTimeArray(ChartNumber, DateTimeArray);
+					start_t = DateTimeArray[res-window_size+1];
+					end_t = DateTimeArray[res];
+
+				}
+				
+				
+				
+
+				year1 = start_t.GetYear();
+				month1 = start_t.GetMonth();
+				day1 = start_t.GetDay();
+				hour1 = start_t.GetHour();
+				min1 = start_t.GetMinute();
+
+				year2 = end_t.GetYear();
+				month2 = end_t.GetMonth();
+				day2 = end_t.GetDay();
+				hour2 = end_t.GetHour();
+				min2 = end_t.GetMinute();
+				char temp1[5],temp2[5],temp3[5],temp4[5],temp5[5],alert[50];
+
+				sprintf_s(temp1,"%d",year1);
+				sprintf_s(temp2,"%d",month1);
+				sprintf_s(temp3,"%d",day1);
+				sprintf_s(temp4,"%d",hour1);
+				sprintf_s(temp5,"%d",min1);
+
+				strcpy(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				strcat(alert,"--");
+
+				sprintf_s(temp1,"%d",year2);
+				sprintf_s(temp2,"%d",month2);
+				sprintf_s(temp3,"%d",day2);
+				sprintf_s(temp4,"%d",hour2);
+				sprintf_s(temp5,"%d",min2);
+
+				strcat(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				
+
+				sc.AddMessageToLog(SCString(alert),1);
+			}
+			else{
+
+				int length = sc.ArraySize;	
+				for(int i=0;i<window_size;i++){
+					sim.Arrays[0][i] = sc.BaseData[SC_LAST][length-window_size+i];
+				}
+				int res =  search_similarity_Euclidean(sim.Arrays[0], sc.BaseData[SC_LAST], window_size,length-window_size-1,threads_count,sc);
+				char alert1[20];
+				sprintf_s(alert1,"%d",res);
+				sc.AddMessageToLog(SCString(alert1),1);
+
+
+				SCDateTime start_t,end_t;
+				int year1,year2,month1,month2,day1,day2,hour1,hour2,min1,min2;
+
+				
+				start_t = sc.BaseDateTimeIn[res-window_size+1];
+				end_t = sc.BaseDateTimeIn[res];
+				
+				year1 = start_t.GetYear();
+				month1 = start_t.GetMonth();
+				day1 = start_t.GetDay();
+				hour1 = start_t.GetHour();
+				min1 = start_t.GetMinute();
+
+				year2 = end_t.GetYear();
+				month2 = end_t.GetMonth();
+				day2 = end_t.GetDay();
+				hour2 = end_t.GetHour();
+				min2 = end_t.GetMinute();
+				char temp1[5],temp2[5],temp3[5],temp4[5],temp5[5],alert[50];
+
+				sprintf_s(temp1,"%d",year1);
+				sprintf_s(temp2,"%d",month1);
+				sprintf_s(temp3,"%d",day1);
+				sprintf_s(temp4,"%d",hour1);
+				sprintf_s(temp5,"%d",min1);
+
+				strcpy(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				strcat(alert,"--");
+
+				sprintf_s(temp1,"%d",year2);
+				sprintf_s(temp2,"%d",month2);
+				sprintf_s(temp3,"%d",day2);
+				sprintf_s(temp4,"%d",hour2);
+				sprintf_s(temp5,"%d",min2);
+
+				strcat(alert,temp1);
+				strcat(alert,"/");
+				strcat(alert,temp2);
+				strcat(alert,"/");
+				strcat(alert,temp3);
+				strcat(alert,"/");
+				strcat(alert,temp4);
+				strcat(alert,":");
+				strcat(alert,temp5);
+				
+
+				sc.AddMessageToLog(SCString(alert),1);
+			}
+			
+
+
+
+		}
+
+	}
+
+
+}
+
+
+
+SCSFExport scsf_show_close_price(SCStudyInterfaceRef sc){
+	SCSubgraphRef close_price= sc.Subgraph[0];
+	SCInputRef SYMBOL1 = sc.Input[0];
+    SCInputRef SYMBOL1Subgraph = sc.Input[1];
+    if(sc.SetDefaults){
+    	sc.GraphName = "show close price";
+		
+		sc.StudyDescription = "This function is an implementation to show close price";
+		
+		sc.AutoLoop = 1;  // true
+		sc.FreeDLL = 1;
+		sc.CalculationPrecedence = LOW_PREC_LEVEL;
+		
+		// Set the Chart Region to draw the graph in.  Region 0 is the main
+		// price graph region.	
+		SYMBOL1.Name = "SYMBOL1";
+        SYMBOL1.SetStudyID(0);
+        SYMBOL1Subgraph.Name = "Price type for symbol 1";
+        SYMBOL1Subgraph.SetSubgraphIndex(3);
+        close_price.Name = "close price";
+        close_price.DrawStyle = DRAWSTYLE_LINE;
+		
+		// Must return before doing any data processing if sc.SetDefaults is set
+		return;
+    }
+
+    SCFloatArray S1Array;
+		
+	sc.GetStudyArrayUsingID(SYMBOL1.GetStudyID(),SYMBOL1Subgraph.GetSubgraphIndex(),S1Array);
+	close_price[sc.Index] = S1Array[sc.Index];
+
+    
+    	
+}
+
+
+//*******************************************************************
+SCSFExport scsf_test_parallel(SCStudyInterfaceRef sc){
+	SCSubgraphRef sim = sc.Subgraph[0];
+	SCSubgraphRef sim2 = sc.Subgraph[1];
+	SCInputRef SYMBOL1 = sc.Input[11];
+    SCInputRef SYMBOL1Subgraph = sc.Input[12];
+    SCInputRef SYMBOL2 = sc.Input[13];
+    SCInputRef SYMBOL2Subgraph = sc.Input[14];
+
+    if (sc.SetDefaults)  
+	{
+		sc.GraphName = "dtw_parallel2";
+		
+		sc.StudyDescription = "This function is an implementation of the dtw function using openmp ";
+		
+		sc.AutoLoop = 0;  // true
+		sc.FreeDLL = 1;
+		sc.CalculationPrecedence = LOW_PREC_LEVEL;
+		
+		// Set the Chart Region to draw the graph in.  Region 0 is the main
+		// price graph region.
+		sc.GraphRegion = 1;
+
+		sc.Input[0].Name = "SYMBOL";
+		sc.Input[0].SetString(sc.GetRealTimeSymbol());
+		sc.Input[1].Name = "num_threads";
+		sc.Input[1].SetInt(8);
+		// sc.Input[2].Name="Sequence normalization";
+		// sc.Input[2].SetYesNo(1);
+		// sc.Input[3].Name = "mean length for sequence normalization ";
+		// sc.Input[3].SetInt(10);
+		// sc.Input[4].Name = "standard_deviation length for sequence normalization";
+		// sc.Input[4].SetInt(10);
+		sc.Input[5].Name = "similarity window size ";
+		sc.Input[5].SetInt(300);
+		sc.Input[6].Name = "SYMBOL2";
+		sc.Input[6].SetString(sc.GetRealTimeSymbol());
+		sc.Input[7].Name="Second Symbol";
+		sc.Input[7].SetYesNo(0);
+		sc.Input[8].Name="historical data";
+		sc.Input[8].SetYesNo(0);
+		sc.Input[9].Name="SECONDS_PER_MINUTE";
+		sc.Input[9].SetInt(1);
+		sc.Input[10].Name = "Interpolation";
+		sc.Input[10].SetYesNo(1);
+		SYMBOL1.Name = "SYMBOL1_Interpolation";
+        SYMBOL1.SetStudyID(0);
+        SYMBOL1Subgraph.Name = "Price type for symbol 1";
+        SYMBOL1Subgraph.SetSubgraphIndex(3);
+
+        SYMBOL2.Name = "SYMBOL2_Interpolation";
+        SYMBOL2.SetStudyID(0);
+        SYMBOL2Subgraph.Name = "Price type for symbol 2";
+        SYMBOL2Subgraph.SetSubgraphIndex(3);
+		
+		sim2.Name = "the result2 of similarity";
+		sim2.PrimaryColor = RGB(0,255,0);
+		sim2.DrawStyle = DRAWSTYLE_LINE;
+
+		// Set the name of the first subgraph
+		sim.Name = "the result1 of similarity";
+
+		// Set the color and style of the subgraph line.  
+		sim.PrimaryColor = RGB(255,0,0);  // Red
+		sim.DrawStyle = DRAWSTYLE_LINE;
+		
+		// Must return before doing any data processing if sc.SetDefaults is set
+		return;
+	}
+
+
+
+	//get the data of another symbol
+	int& ChartNumber = sc.GetPersistentInt(1);
+	int& ChartNumber2 = sc.GetPersistentInt(2);
+	int threads_count =  sc.Input[1].GetInt();
+	// bool sequence_normalization = sc.Input[2].GetYesNo();
+	// int  mean_len = sc.Input[3].GetInt();
+	// int  standard_deviation_length = sc.Input[4].GetInt();
+	int window_size = sc.Input[5].GetInt();
+	bool second_symbol = sc.Input[7].GetYesNo();
+	bool historiy = sc.Input[8].GetYesNo();
+	int minutes = sc.Input[9].GetInt();
+	bool Interpolation = sc.Input[10].GetYesNo();
+
+
+	//data check
+
+	if(threads_count<=1){
+		threads_count = 1;
+		sc.Input[1].SetInt(threads_count);
+	}
+	else if(threads_count>20){
+		threads_count = 20;
+		sc.Input[1].SetInt(threads_count);
+	}
+
+	// if(mean_len<=10){
+	// 	mean_len = 10;
+	// 	sc.Input[3].SetInt(mean_len);
+	// }
+	// else if(mean_len>100){
+	// 	mean_len = 100;
+	// 	sc.Input[3].SetInt(mean_len);
+	// }
+
+	// if(standard_deviation_length<=10){
+	// 	standard_deviation_length = 10;
+	// 	sc.Input[4].SetInt(standard_deviation_length);
+	// }
+	// else if(standard_deviation_length>100){
+	// 	standard_deviation_length = 100;
+	// 	sc.Input[4].SetInt(standard_deviation_length);
+	// }
+
+	if(window_size<=7){
+		window_size = 7;
+		sc.Input[5].SetInt(window_size);
+	}
+	else if(window_size>=5000){
+		window_size = 500;
+		sc.Input[5].SetInt(window_size);
+	}
+	
+
+
+	int ChartNumberArray[2];
+	if (sc.IsFullRecalculation && !Interpolation)
+	{
+		GetSymbolData(ChartNumberArray ,sc.Input[0].GetString(),minutes,historiy,second_symbol,sc.Input[6].GetString(),ChartNumber,sc);
+		ChartNumber = ChartNumberArray[0];
+		ChartNumber2 = ChartNumberArray[1];
+		
+		
+		
+
+	}
+
+
+	if ((ChartNumber != 0 && ChartNumber2!=0)||(ChartNumber!=0 && !second_symbol) || Interpolation)
+	{
+		
+		SCFloatArray S1Array,S2Array;
+
+		SCGraphData ReferenceChartData;
+		SCGraphData ReferenceChartData2;
+
+		// Get the arrays from the reference chart
+		if(!Interpolation){
+			sc.GetChartBaseData(ChartNumber, ReferenceChartData);
+			S1Array = ReferenceChartData[SC_LAST];
+			if(second_symbol){
+				sc.GetChartBaseData(ChartNumber2, ReferenceChartData2);
+				S2Array = ReferenceChartData2[SC_LAST];
+			}
+		}
+		else{
+			
+			sc.GetStudyArrayUsingID(SYMBOL1.GetStudyID(),SYMBOL1Subgraph.GetSubgraphIndex(),S1Array);
+
+			if(second_symbol){
+				sc.GetStudyArrayUsingID(SYMBOL2.GetStudyID(),SYMBOL2Subgraph.GetSubgraphIndex(),S2Array);
+			}
+		}
+		
+
+		
+		if ((S1Array.GetArraySize() > 0 &&S2Array.GetArraySize() > 0)||(S1Array.GetArraySize() > 0 && !second_symbol))
+		{
+			
+
+
+			sc.DataStartIndex = 0;
+			#pragma omp parallel for num_threads(threads_count)
+			for (int BarIndex = sc.UpdateStartIndex; BarIndex < sc.ArraySize; BarIndex++){
+				
+				//data1[BarIndex] = sim.Arrays[0][BarIndex];
+				//data2[BarIndex] = sim.Arrays[1][BarIndex];
+				//data[BarIndex] = ReferenceChartData[SC_LAST][BarIndex];
+				
+				if(BarIndex>=window_size-1 ){
+					
+					{
+						int len_x_new = window_size+1;
+						int len_y_new = window_size+1;
+						int global_restrict = (int)(window_size*0.5);
+
+						float** cost_matrix;
+						cost_matrix = (float**)malloc(sizeof(float*)*(window_size+1));
+						for(int i=0;i<=window_size;i++){
+							cost_matrix[i] = (float*)malloc((window_size+1)*sizeof(float));
+						}
+						float* temp_x;
+						float* temp_y;
+						temp_x = (float*)malloc( window_size*sizeof(float) );
+						temp_y = (float*)malloc( window_size*sizeof(float) );
+
+						Z_Score(sc.BaseData[SC_LAST],window_size,BarIndex,temp_x);
+						Z_Score(S1Array,window_size,BarIndex,temp_y);
+
+						// for(int i=0;i<len;i++){
+						// 	temp_x[i] = s1[BarIndex-(len-1- i)];
+						// 	temp_y[i] = s2[BarIndex-(len-1- i)];
+						// }
+
+
+
+
+
+						for(int i = 0;i<len_x_new;i++){
+							for(int j = 0;j<len_y_new;j++){
+								cost_matrix[i][j] = INF;
+							}
+						}
+						cost_matrix[0][0] = 0;
+						int loop_num = 2*window_size-1;
+
+						for(int index=0;index<loop_num;index++){
+							int calculation_num = 0;
+							if(index<=window_size-1){
+								calculation_num = index+1;
+							}
+							else{
+								calculation_num = 2*window_size-index-1; 
+							}
+
+
+							
+
+							#pragma omp parallel
+							{
+								int my_rank = omp_get_thread_num();
+								int thread_count = omp_get_num_threads();
+								// char alert[20];
+								// sprintf_s(alert, "%d",thread_count);
+								// sc.AddMessageToLog(SCString(alert),1);
+
+
+
+								if(calculation_num<=thread_count){
+									if(my_rank<=calculation_num-1){
+										if(index<=window_size-1){
+											if(abs(my_rank-(index-my_rank))<=global_restrict){
+												float d = temp_x[my_rank] - temp_y[index-my_rank];
+												float cost = d*d;
+												cost_matrix[my_rank+1][index-my_rank+1] = cost+min_cost(cost_matrix[my_rank][index-my_rank+1],cost_matrix[my_rank+1][index-my_rank],cost_matrix[my_rank][index-my_rank]);
+											}
+																
+										}
+										else{
+
+											int temp_num = index-window_size+1;
+											if(abs(temp_num+my_rank-(window_size-my_rank-1))<=global_restrict){
+												float d = temp_x[temp_num+my_rank] - temp_y[window_size-my_rank-1];
+												float cost = d*d;
+												cost_matrix[temp_num+my_rank+1][window_size-my_rank] = cost+min_cost(cost_matrix[temp_num+my_rank][window_size-my_rank],cost_matrix[temp_num+my_rank+1][window_size-my_rank-1],cost_matrix[temp_num+my_rank][window_size-my_rank-1]);
+										
+											}
+											
+										}
+									}
+									else{
+										//do nothing
+									}
+								}
+								else{
+									int average_count = (int)(calculation_num/thread_count);
+									
+									float d=0;
+									float cost =0;
+									int start_num,end_num,temp_num;
+									if(my_rank!=thread_count-1){
+										start_num = my_rank*average_count+1;
+										end_num = start_num+average_count-1;
+										if(index<=window_size-1){
+											for(int s = start_num;s<=end_num;s++){
+												if(abs(s-1-(index+1-s))<=global_restrict){
+													d = temp_x[s-1] - temp_y[index+1-s];
+													cost = d*d;
+													cost_matrix[s][index-s+2] = cost+min_cost(cost_matrix[s-1][index-s+2],cost_matrix[s][index-s+1],cost_matrix[s-1][index-s+1]);
+											
+												}
+												
+											}
+										}
+										else{
+											for(int s = start_num;s<=end_num;s++){
+												temp_num = index-window_size;
+												if(abs(temp_num+s-(window_size-s))<=global_restrict){
+													d = temp_x[temp_num+s]-temp_y[window_size-s];
+													cost = d*d;
+													cost_matrix[temp_num+s+1][window_size-s+1] = cost+min_cost(cost_matrix[temp_num+s][window_size-s+1],cost_matrix[temp_num+s+1][window_size-s],cost_matrix[temp_num+s][window_size-s]);
+											
+												}
+												
+											}
+
+										}
+										
+									}
+									else{
+										start_num = (thread_count-1)*average_count+1;
+										end_num = calculation_num;
+
+										if(index<=window_size-1){
+											for(int s = start_num;s<=end_num;s++){
+												if(abs(s-1-(index+1-s))<=global_restrict){
+													d = temp_x[s-1] - temp_y[index+1-s];
+													cost = d*d;
+													cost_matrix[s][index-s+2] = cost+min_cost(cost_matrix[s-1][index-s+2],cost_matrix[s][index-s+1],cost_matrix[s-1][index-s+1]);
+											
+												}
+												
+											}
+										}
+										else{
+											for(int s = start_num;s<=end_num;s++){
+												temp_num = index-window_size;
+												if(abs(temp_num+s-(window_size-s))<=global_restrict){
+													d = temp_x[temp_num+s]-temp_y[window_size-s];
+													cost = d*d;
+													cost_matrix[temp_num+s+1][window_size-s+1] = cost+min_cost(cost_matrix[temp_num+s][window_size-s+1],cost_matrix[temp_num+s+1][window_size-s],cost_matrix[temp_num+s][window_size-s]);
+											
+												}
+												
+											}
+										}
+
+									}
+								}
+							}
+
+
+
+						}
+
+						float res = cost_matrix[window_size][window_size]; 
+						free((void *)temp_x);
+						free((void *)temp_y);
+						
+						for(int i=0;i<=window_size;i++){
+							free((void *)cost_matrix[i]);
+						}
+						free((void *)cost_matrix);
+						sim[BarIndex] =  res;
+		
+					}
+					
+					
+
+					
+				}
+				
+				
+			}
+				
+				// Subgraph_Output[BarIndex] = 7;
+		}
+		else{
+			sc.AddMessageToLog("the length of the data of the new symbol is 0",1);
+		}
+	}
+	else{
+			sc.AddMessageToLog("error happened when opening the data of the new symbol",1);
+	}
+	
+}
